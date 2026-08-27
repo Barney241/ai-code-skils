@@ -18,7 +18,8 @@ ready is by checking the wrong signal — see Phase 2.5.
 - **Never force-push, amend, or rewrite history.** Push new commits.
 - **Never merge.** Merging is a human decision even when the PR is green.
 - **One PR-state reader.** Never hand-write a poll loop — they die with the session and each one
-  re-derives the same wrong answer. Use one command, defined once (see below).
+  re-derives the same wrong answer, usually by trusting a status check that is green even when
+  the review never ran. Use [`tools/prwatch`](tools/prwatch).
 - **One push per fix round.** Every push starts a pipeline and cancels the running one. Batch the
   whole round, then push once.
 - **Loop ends** only when every stop condition below is met.
@@ -37,50 +38,82 @@ state should be re-read rather than remembered.
 
 ## Phase 2 · The poll loop
 
-One command per tick. If your project has a dedicated PR-state tool, use it. Otherwise:
+**Use the tool, not a hand-written loop.** [`tools/prwatch`](tools/prwatch) computes the whole state
+as one JSON document with a single `verdict` to branch on. One tick is one call:
 
 ```bash
-gh pr view "$PR" --json isDraft,mergeable,reviewDecision,statusCheckRollup,reviews,reviewThreads \
+go run ./tools/prwatch status "$PR"
+```
+
+Build it once if you prefer: `go build -o ~/.local/bin/prwatch ./tools/prwatch`. It needs Go 1.23+
+and an authenticated `gh`; set `PRWATCH_REPO` if the cwd is not the target repository.
+
+| `verdict` | Action |
+|---|---|
+| `DRAFT` | Mark ready once local gates pass, then trigger review. |
+| `CONFLICTED` | Rebase onto the base branch, re-run gates, push. |
+| `CI_RED` | Phase 3 — CI triage. |
+| `FEEDBACK_PENDING` | Phase 4 — feedback. |
+| `CI_PENDING` | Wait and re-tick at the cadence below. |
+| `RATE_LIMITED` | Sleep until `coderabbit.next_review_at`. Never guess the wait. |
+| `BLOCKED_UNREVIEWED` | Phase 2.5 — spend a review through the ledger. |
+| `GREEN` | **Done.** Report the final state and the URL. Do not merge. |
+
+Everything the verdict is derived from is in the same document — CI rollup, bot and human threads
+counted separately, whether the bot reviewed *this* head, and the rate-limit window the bot itself
+stated. Read that; do not re-derive it.
+
+<details>
+<summary>Without Go: an approximation using <code>gh</code> and <code>jq</code></summary>
+
+```bash
+gh pr view "$PR" --json isDraft,mergeable,reviewDecision,statusCheckRollup,reviews,reviewThreads,commits \
   --jq '{
     draft: .isDraft,
     mergeable: .mergeable,
     decision: .reviewDecision,
     failing: [.statusCheckRollup[]? | select(.conclusion=="FAILURE")] | length,
     pending: [.statusCheckRollup[]? | select(.status=="IN_PROGRESS" or .status=="QUEUED")] | length,
-    unresolved: [.reviewThreads[]? | select(.isResolved==false)] | length
+    unresolved: [.reviewThreads[]? | select(.isResolved==false)] | length,
+    last_review: (.reviews | map(select(.author.login | test("coderabbit"; "i"))) | last | .submittedAt),
+    head_at: (.commits | last | .commit.committedDate)
   }'
 ```
 
-| State | Action |
-|---|---|
-| draft | Mark ready once local gates pass, then trigger review however your bot is wired. |
-| not mergeable | Rebase onto the base branch, re-run gates, push. |
-| failing > 0 | Phase 3 — CI triage. |
-| unresolved > 0 | Phase 4 — feedback. |
-| pending > 0 | Wait and re-tick. Do not poll faster than the cadence below. |
-| head never reviewed | Phase 2.5. |
-| all clear | **Done.** Report final state and the URL. Do not merge. |
+`last_review > head_at` is the review gate. This has no quota ledger, so you must track review
+spending yourself — which is the part that goes wrong.
+</details>
 
 ## Phase 2.5 · The review gate
 
-**A green "review" status check does not mean a review happened.** Many bots leave their check
-green when a review was skipped for rate limits. The only evidence is **a review whose timestamp is
-later than the head commit's**:
+**A green "review" status check does not mean a review happened.** Many bots leave that check green
+when the review was skipped for rate limits. The only evidence is a review whose timestamp is later
+than the head commit's — `prwatch` reports this as `coderabbit.reviewed_head`.
+
+A PR with zero reviews also has zero unresolved threads, so "nothing failing and nothing open"
+passes trivially on a PR nobody looked at. That is the trap this phase exists for.
+
+**Spend review quota only through the ledger:**
 
 ```bash
-gh pr view "$PR" --json reviews,commits \
-  --jq '{last_review: (.reviews | last | .submittedAt),
-         head_at: (.commits | last | .commit.committedDate)}'
+go run ./tools/prwatch ping "$PR"
 ```
 
-A PR with zero reviews also has zero unresolved threads — so "no failing checks and no open
-threads" passes trivially on a PR nobody looked at. That is the trap.
+It refuses, with a reason, unless the slot is genuinely free — 30 minutes since the last ping
+anywhere, past any stated `next_review_at`, this SHA never pinged, nothing in flight, not a draft.
+Quota is a *shared serial resource across all PRs*, not a per-PR budget, which is why it is spent in
+one place. **Print the refusal rather than retrying**; a refusal is information.
 
-Spend review quota deliberately: one request per fix round, never one per commit. Verify the
-request landed — some bots reply with a rate-limit refusal that looks like an acknowledgement. After
-three honoured attempts with no review, stop and report the PR as **unreviewed** rather than green.
+**Verify the ping landed.** About 90 seconds later, re-read the PR comments. A reply containing
+"Action not completed" or "Review rate limited" means it was **refused, not queued** — the review
+did not happen. Do not record it as reviewed; back off to `next_review_at`.
 
-While waiting, a local review CLI usually draws on a separate quota. Run it and fix what it finds.
+After **three honoured attempts** with no review landing, stop and report the PR as **unreviewed**
+rather than green.
+
+**Local alternative while you wait.** A review CLI usually draws on a separate quota pool from the
+PR bot. Run it on the current diff and fix what it finds; the bot's eventual review then becomes a
+second opinion instead of the blocker.
 
 ## Phase 3 · CI failure triage
 
@@ -144,7 +177,8 @@ If your first instinct is one of those, the correct action is fix or escalate �
 3. Run the local review CLI on the fix — separate quota, catches what the bot would say.
 4. Commit citing the review source: `fix(<scope>): <short fix> (PR feedback round N)`.
 5. Push **once**.
-6. Request exactly one re-review of the batch.
+6. Request exactly one re-review of the batch, through the ledger:
+   `go run ./tools/prwatch ping "$PR"` — never one request per commit, and never by hand.
 
 ### When the bot will not re-review
 

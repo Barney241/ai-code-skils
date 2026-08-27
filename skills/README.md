@@ -9,7 +9,17 @@ skills/<name>/
   README.md             optional — for humans: why it exists, what it was tested against
   rules/                optional — path-scoped rule documents
   assets/               optional — prompts, schemas, checklists
+  tools/                optional — real programs the skill calls
 ```
+
+`tools/` is where a skill puts work that should not cost model attention. Polling an API, computing
+a verdict, tracking a quota — these are deterministic, so they belong in a program the agent *calls*
+rather than in instructions the agent *follows*. `watch-pr` ships
+[`prwatch`](watch-pr/tools/prwatch) for exactly this reason: before it existed, sessions hand-wrote
+a poller per PR and each one re-derived "is this done?" wrongly, in the same two ways.
+
+Keep tools dependency-light and independently runnable. A tool that only works inside one repo is a
+tool nobody else can use.
 
 ## SKILL.md
 

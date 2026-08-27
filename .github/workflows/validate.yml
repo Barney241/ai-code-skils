@@ -63,6 +63,21 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck -S warning install.sh
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - name: Go tools build, vet and test
+        run: |
+          fail=0
+          while IFS= read -r mod; do
+            dir=$(dirname "$mod")
+            echo "--- $dir"
+            (cd "$dir" && test -z "$(gofmt -l .)" && go vet ./... && go test ./...) || fail=1
+          done < <(find skills -name go.mod)
+          exit $fail
+
       - name: install.sh works end to end
         run: |
           target=$(mktemp -d)
