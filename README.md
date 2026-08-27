@@ -67,6 +67,11 @@ works by billing per push, it does not belong in this repo.
 | Skill | What it does |
 |---|---|
 | [`review`](skills/review) | Precision-first code review: `select → group → plan → review → anchor → verify → record`, with path-scoped rule docs and a fact-checking pass that can only delete what the diff disproves. |
+| [`open-pr`](skills/open-pr) | Owns the step from committed to watched: preflight, issue linking, a local review pass *before* the push, then a draft PR handed straight to `watch-pr`. |
+| [`watch-pr`](skills/watch-pr) | Babysits a PR until it is genuinely green: CI triage with a three-attempt cap on unrelated failures, feedback resolution with banned rationalizations, one push per fix round. |
+
+The three chain: `review` → `open-pr` → `watch-pr`, with no user-gated pause between them. Each is
+usable on its own.
 
 More to come. The layout below is built so adding one is mechanical.
 
