@@ -1,0 +1,11 @@
+# Local, per-repository rule files written from project.template.md
+skills/*/rules/project.md
+
+# Findings logs, if anyone runs the pipeline from inside this checkout
+*.jsonl
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

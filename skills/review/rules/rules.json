@@ -1,0 +1,50 @@
+{
+  "_comment": "Glob -> rule document map. First match wins per file; always_load is added on top. Globs are doublestar syntax matched against the repo-relative path. Copy project.template.md to project.md and add it to always_load once you have filled it in.",
+
+  "default_rule": "core.md",
+  "always_load": ["core.md", "comments.md", "tests.md"],
+
+  "path_rule_map": {
+    "**/internal/v2/**": "clean-arch.md",
+    "**/domain/**": "clean-arch.md",
+    "**/usecase*.go": "clean-arch.md",
+    "**/*_test.go": "tests.md",
+    "**/test/**": "tests.md",
+    "**/tests/**": "tests.md",
+    "e2e*/**": "tests.md"
+  },
+
+  "exclude": [
+    "**/gen/**",
+    "**/generated/**",
+    "**/*.pb.go",
+    "**/*_gen.go",
+    "**/*.g.dart",
+    "**/*.freezed.dart",
+    "vendor/**",
+    "node_modules/**",
+    "**/testdata/**",
+    "**/__snapshots__/**",
+    "**/*.snap",
+    "**/*.lock",
+    "go.sum",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "Cargo.lock",
+    "poetry.lock",
+    "**/swagger.yaml",
+    "**/openapi.json"
+  ],
+
+  "_risk_paths_comment": "Force `deep` mode. These are examples -- replace with yours in project.md; a path here should be one where a mistake is expensive and hard to reverse.",
+  "risk_paths": [
+    "**/migrations/**",
+    "**/*.proto",
+    "**/*.graphqls",
+    "**/schema.sql",
+    ".github/workflows/**",
+    "**/Dockerfile",
+    "**/*Dependencies.go"
+  ]
+}

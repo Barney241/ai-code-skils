@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Barney241/ai-code-skils/skills/review/assets/finding-schema.json",
+  "title": "Review finding",
+  "description": "One JSON object per line in the findings log. One vocabulary, so results across runs can be counted -- which is what turns review from opinion into evidence.",
+  "type": "object",
+  "required": ["id", "run", "round", "path", "anchor", "category", "severity", "scope", "claim", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "id":     { "type": "string", "description": "Unique within the run, e.g. f-3465-07." },
+    "run":    { "type": "string", "description": "Shared by every finding from one review, keyed by the reviewed tree: run-<tree12>." },
+    "round":  { "type": "integer", "minimum": 1, "description": "Fix-loop iteration. A second pass is a second round of one review, not a second review." },
+    "type":   { "enum": ["finding", "run"], "default": "finding", "description": "'run' marks the clean-pass record written when a review finds nothing." },
+
+    "pr":     { "type": ["integer", "null"], "description": "PR number if the review ran against one." },
+    "sha":    { "type": "string", "description": "Head commit at review time." },
+    "tree":   { "type": "string", "description": "The reviewed tree. Absent when gateable is false." },
+    "gateable": { "type": "boolean", "default": true, "description": "False for unstaged workspace reviews: the index tree is not what was reviewed, so a commit gate must not accept it." },
+    "range":  { "type": "string", "description": "The diff range the run selected." },
+
+    "lane":   {
+      "type": "string",
+      "description": "Which lane produced it. Lanes fan out over the work, not over personas.",
+      "examples": ["correctness", "tests", "comments", "clean-arch", "consistency", "lifecycle", "security-cost", "blind-spot"]
+    },
+    "rule":   { "type": "string", "description": "Rule id, e.g. CA-6, T-2, C-3, D-8." },
+
+    "path":   { "type": "string", "description": "Repo-relative path of the subject file." },
+    "line":   { "type": "integer", "minimum": 1, "description": "DERIVED by matching anchor against the file's added lines -- never asserted directly." },
+    "anchor": { "type": "string", "description": "Verbatim added lines the finding refers to, leading + stripped. Line numbers hallucinate; quoted code does not." },
+    "unanchored": { "type": "boolean", "default": false, "description": "Set when the anchor matched zero or several times. Such a finding is re-located, never attached to a guessed line." },
+
+    "category": { "enum": ["bug", "security", "performance", "maintainability", "test", "documentation", "cost", "consistency"] },
+    "severity": { "enum": ["critical", "major", "minor", "info"] },
+    "effort":   { "enum": ["quick-win", "heavy-lift", "poor-tradeoff", "low-value"], "description": "The axis nobody copies and the most useful of the three: severity says whether a finding is real, effort says whether it is worth doing now." },
+    "scope":    { "enum": ["new", "pre-existing"], "description": "pre-existing is a label, never a downgrade -- and requires the change to have made that code newly wrong or load-bearing." },
+
+    "claim":    { "type": "string", "description": "One sentence: what breaks, and when." },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Commands run and what they returned. Required for critical and major -- those are rejected at record time without it."
+    },
+
+    "verdict": { "enum": ["kept", "deleted-ground-a", "deleted-ground-b"], "description": "Set by the verify stage." },
+    "outcome": { "enum": ["fixed", "dismissed-with-evidence", "false-positive", "escalated"], "description": "Set after the fix loop. This is what makes precision measurable." },
+
+    "ts": { "type": "string", "format": "date-time" }
+  },
+
+  "allOf": [
+    {
+      "if":   { "properties": { "severity": { "enum": ["critical", "major"] } }, "required": ["severity"] },
+      "then": { "required": ["evidence"], "properties": { "evidence": { "minItems": 1 } } }
+    }
+  ]
+}

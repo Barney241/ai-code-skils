@@ -1,0 +1,76 @@
+name: validate
+
+# No workflow inputs, no github.event.* interpolation anywhere in this file:
+# every step operates on checked-out files only.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every skill has valid frontmatter
+        run: |
+          fail=0
+          while IFS= read -r skill; do
+            name=$(basename "$(dirname "$skill")")
+            head -1 "$skill" | grep -q '^---$' \
+              || { echo "::error file=$skill::$name: SKILL.md must open with YAML frontmatter"; fail=1; }
+            sed -n '2,10p' "$skill" | grep -q '^name:' \
+              || { echo "::error file=$skill::$name: frontmatter missing 'name'"; fail=1; }
+            sed -n '2,10p' "$skill" | grep -q '^description:' \
+              || { echo "::error file=$skill::$name: frontmatter missing 'description'"; fail=1; }
+            echo "checked $name"
+          done < <(find skills -mindepth 2 -maxdepth 2 -name SKILL.md)
+          exit $fail
+
+      - name: JSON parses
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" \
+              || { echo "::error file=$f::invalid JSON"; fail=1; }
+            echo "parsed $f"
+          done < <(find . -name '*.json' -not -path './.git/*')
+          exit $fail
+
+      - name: Rule documents state their carve-outs
+        run: |
+          # A rule with ASSERT but no DO NOT FLAG fires on every legitimate
+          # exception until readers learn to ignore the skill.
+          fail=0
+          while IFS= read -r f; do
+            if grep -q '\*\*ASSERT\*\*' "$f" && ! grep -q '\*\*DO NOT FLAG\*\*' "$f"; then
+              echo "::error file=$f::has ASSERT rules but no DO NOT FLAG carve-out"
+              fail=1
+            fi
+          done < <(find skills -path '*/rules/*.md' -not -name 'project.template.md')
+          exit $fail
+
+      - name: install.sh is valid shell
+        run: bash -n install.sh
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning install.sh
+
+      - name: install.sh works end to end
+        run: |
+          target=$(mktemp -d)
+          ./install.sh review "$target"
+          test -f "$target/.agents/skills/review/SKILL.md"
+          test -L "$target/.claude/skills/review"
+          test -f "$target/.claude/skills/review/SKILL.md"   # symlink resolves
+          ./install.sh --uninstall review "$target"
+          test ! -e "$target/.agents/skills/review"
+          test ! -L "$target/.claude/skills/review"
+          echo "install and uninstall both clean"
