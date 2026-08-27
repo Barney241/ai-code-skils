@@ -15,8 +15,8 @@ set -euo pipefail
 SRC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_SRC="$SRC_ROOT/skills"
 
-MODE=copy
-ACTION=install
+MODE="copy"
+ACTION="install"
 SELECTED=()
 TARGET=""
 
@@ -38,9 +38,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --list)      available; exit 0 ;;
     --all)       SELECTED=(__ALL__) ;;
-    --link)      MODE=link ;;
-    --copy)      MODE=copy ;;
-    --uninstall) ACTION=uninstall ;;
+    --link)      MODE="link" ;;
+    --copy)      MODE="copy" ;;
+    --uninstall) ACTION="uninstall" ;;
     -h|--help)   usage; exit 0 ;;
     -*)          die "unknown flag: $1" ;;
     *)
@@ -70,9 +70,12 @@ for name in "${SELECTED[@]}"; do
   dest="$TARGET/.agents/skills/$name"
   link="$TARGET/.claude/skills/$name"
 
-  if [ "$ACTION" = uninstall ]; then
+  if [ "$ACTION" = "uninstall" ]; then
     printf 'uninstalling %s from %s\n' "$name" "$TARGET"
-    [ -e "$link" ] || [ -L "$link" ] && rm -f "$link" && info "removed $link"
+    if [ -e "$link" ] || [ -L "$link" ]; then
+      rm -f "$link"
+      info "removed $link"
+    fi
     if [ -L "$dest" ]; then rm -f "$dest"; info "removed symlink $dest"
     elif [ -d "$dest" ]; then rm -rf "$dest"; info "removed $dest"
     fi
@@ -82,11 +85,13 @@ for name in "${SELECTED[@]}"; do
   printf 'installing %s into %s (%s)\n' "$name" "$TARGET" "$MODE"
   mkdir -p "$TARGET/.agents/skills" "$TARGET/.claude/skills"
 
-  # Replace any previous install so re-running is idempotent.
-  [ -L "$dest" ] && rm -f "$dest"
-  [ -d "$dest" ] && rm -rf "$dest"
+  # Replace any previous install so re-running is idempotent. Written as `if`
+  # rather than `[ ... ] && rm`: under `set -e` that form relies on bash's
+  # short-circuit exemption to not abort when the test is simply false.
+  if [ -L "$dest" ]; then rm -f "$dest"; fi
+  if [ -d "$dest" ]; then rm -rf "$dest"; fi
 
-  if [ "$MODE" = link ]; then
+  if [ "$MODE" = "link" ]; then
     ln -s "$src" "$dest"
     info "linked $dest -> $src"
   else
@@ -96,8 +101,8 @@ for name in "${SELECTED[@]}"; do
 
   # Claude Code discovers skills under .claude/skills; keep it a relative
   # symlink so the target repo stays portable across machines and worktrees.
-  [ -L "$link" ] && rm -f "$link"
-  [ -e "$link" ] && die "$link exists and is not a symlink; move it aside first"
+  if [ -L "$link" ]; then rm -f "$link"; fi
+  if [ -e "$link" ]; then die "$link exists and is not a symlink; move it aside first"; fi
   ln -s "../../.agents/skills/$name" "$link"
   info "symlinked $link -> ../../.agents/skills/$name"
 
