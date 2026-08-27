@@ -68,7 +68,7 @@ works by billing per push, it does not belong in this repo.
 |---|---|
 | [`review`](skills/review) | Precision-first code review: `select → group → plan → review → anchor → verify → record`, with path-scoped rule docs and a fact-checking pass that can only delete what the diff disproves. |
 | [`open-pr`](skills/open-pr) | Owns the step from committed to watched: preflight, issue linking, a local review pass *before* the push, then a draft PR handed straight to `watch-pr`. |
-| [`watch-pr`](skills/watch-pr) | Babysits a PR until it is genuinely green: CI triage with a three-attempt cap on unrelated failures, feedback resolution with banned rationalizations, one push per fix round. |
+| [`watch-pr`](skills/watch-pr) | Babysits a PR until it is genuinely green: CI triage with a three-attempt cap on unrelated failures, feedback resolution with banned rationalizations, one push per fix round. Ships [`prwatch`](skills/watch-pr/tools/prwatch), a Go tool that computes PR state and one verdict, and rations review-bot quota through a ledger. |
 
 The three chain: `review` → `open-pr` → `watch-pr`, with no user-gated pause between them. Each is
 usable on its own.
@@ -114,9 +114,18 @@ skills/<name>/
   README.md             optional — rationale, evidence, design notes for humans
   rules/                optional — path-scoped rule documents the skill loads
   assets/               optional — prompts, schemas, checklists
+  tools/                optional — real programs the skill calls
 install.sh              installs a skill into a target repo
 adapters/               how to load a skill in each AI system
 ```
+
+`tools/` follows from principle 3: deterministic work should not cost model attention. Polling an
+API and computing a verdict is a program's job, so `watch-pr` ships one rather than describing a
+loop for the agent to run by hand.
+
+**Dependencies:** the skills themselves are plain markdown and need nothing. `prwatch` is the only
+program in the repo — Go 1.23+ and an authenticated `gh`, both optional, with a documented `gh`-only
+fallback if you would rather not build it.
 
 A skill is valid if `SKILL.md` exists and opens with YAML frontmatter carrying `name` and
 `description`. Everything else is convention. See [`skills/README.md`](skills/README.md) for the
@@ -158,12 +167,15 @@ Anything not credited — the persona-correlation analysis, the anchoring rules,
 procedure, the portable/project split — came from running these skills against a production
 monorepo and watching what broke.
 
-## Contributing
+## Contributions
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: every rule needs `ASSERT`, `VERIFY`, and
-`DO NOT FLAG`, and every `VERIFY` command must be run once against a real repository to prove it
-matches something. A rule whose command silently matches nothing reports clean forever, which is
-worse than having no rule at all.
+This is a personal repository, public so it can be read and forked — but **not open to pull
+requests**, and issues are not tracked. Fork it and make it yours; that is the intended use.
+
+If you do fork it, the one rule worth keeping is the bar in
+[`skills/README.md`](skills/README.md): every rule needs `ASSERT`, `VERIFY` and `DO NOT FLAG`, and
+every `VERIFY` command must be run once against a real repository to prove it matches something. A
+rule whose command silently matches nothing reports clean forever, which is worse than no rule.
 
 ## License
 
